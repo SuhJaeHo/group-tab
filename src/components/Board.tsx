@@ -25,20 +25,16 @@ type ContextType = {
   tab: ITab;
 };
 
-type ActionType = {
-  type: "DIVIDE_TAB";
-  payload: {
-    groupId: string;
-    tabId: string;
-    tabOrder: number;
-    clientX: number;
-    clientY: number;
-  };
-};
+type ActionType =
+  | {
+      type: "DIVIDE_TAB";
+      payload: { groupId: string; tabId: string; tabOrder: number; clientX: number; clientY: number };
+    }
+  | { type: "COMBINE_TAB"; payload: { currGroupId: string; targetGroupId: string; tabId: string; tabOrder: number } };
 
 const reducer = (state: ContextType, action: ActionType) => {
   switch (action.type) {
-    case "DIVIDE_TAB":
+    case "DIVIDE_TAB": {
       const { groupId, tabId, tabOrder, clientX, clientY } = action.payload;
       state.group[groupId].tabIds.splice(tabOrder, 1);
 
@@ -52,6 +48,21 @@ const reducer = (state: ContextType, action: ActionType) => {
         },
       };
       return { ...state };
+    }
+    case "COMBINE_TAB": {
+      const { currGroupId, targetGroupId, tabId } = action.payload;
+      // todo: combine tab to closest group
+      if (!state.group[currGroupId]) return state;
+
+      if (state.group[currGroupId].tabIds.length <= 1) {
+        delete state.group[currGroupId];
+      } else {
+        const tabIdx = state.group[currGroupId].tabIds.indexOf(tabId);
+        state.group[currGroupId].tabIds.splice(tabIdx, 1);
+      }
+      state.group[targetGroupId].tabIds.push(tabId);
+      return { ...state };
+    }
     default:
       return state;
   }
@@ -82,8 +93,6 @@ const Container = ({ children }: { children: React.ReactNode }) => {
     const groupHeaderElement = document.querySelector("[data-group-is-dragging=true]");
     const tabElement = document.querySelector("[data-tab-is-dragging=true]");
     const resizeElement = document.querySelector("[data-resize-is-dragging=true]");
-
-    const groupIds = Object.keys(dataContext.group);
 
     if (!boardElement) return;
     if (resizeElement) {
@@ -152,9 +161,10 @@ const Container = ({ children }: { children: React.ReactNode }) => {
       return;
     }
 
-    if (tabElement && groupIds.length <= 1) {
+    if (tabElement) {
       const dataAttrPositions = tabElement.getAttribute("data-positions");
-      if (dataAttrPositions) {
+      const dataGroupId = tabElement.getAttribute("data-group-id");
+      if (dataAttrPositions && dataContext.group[dataGroupId] && dataContext.group[dataGroupId].tabIds.length > 1) {
         const positions = JSON.parse(dataAttrPositions) as any;
         const deltaX = e.clientX - positions.lastPosition.x;
         const deltaY = e.clientY - positions.lastPosition.y;
@@ -164,8 +174,8 @@ const Container = ({ children }: { children: React.ReactNode }) => {
         positions.lastPosition.x = e.clientX;
         positions.lastPosition.y = e.clientY;
         tabElement.setAttribute("data-positions", JSON.stringify(positions));
+        return;
       }
-      return;
     }
 
     if (groupHeaderElement && groupHeaderElement.parentElement) {
@@ -322,6 +332,7 @@ const GroupHeader = React.forwardRef<React.ElementRef<"div">, IGroupProps>((prop
       onMouseDown={handleMouseDown}
       onMouseUp={handleMouseUp}
       data-group-is-dragging={false}
+      data-group-header
     >
       {tabIds.map((tabId, idx) => (
         <Tab key={tabId} {...props} tabId={tabId} tabOrder={idx} />
@@ -369,16 +380,63 @@ const Tab = React.forwardRef<React.ElementRef<"div">, ITabProps>((props, forward
     const tabElement = e.target as HTMLElement;
     if (tabElement && tabElement.parentElement) {
       tabElement.setAttribute("data-tab-is-dragging", "false");
-      const divide_dist = 30;
+      const dist = 10;
       const tabElementRect = tabElement.getBoundingClientRect();
       const groupHeaderElementRect = tabElement.parentElement.getBoundingClientRect();
+
       if (
-        (!(tabElementRect.x === groupHeaderElementRect.x && tabElementRect.y === groupHeaderElementRect.y) &&
-          Math.abs(tabElementRect.top + tabElementRect.height - groupHeaderElementRect.top) >= divide_dist &&
-          Math.abs(tabElementRect.top - (groupHeaderElementRect.top + groupHeaderElementRect.height)) >= divide_dist) ||
-        (Math.abs(tabElementRect.left + tabElementRect.width - groupHeaderElementRect.left) >= divide_dist &&
-          Math.abs(tabElementRect.left - (groupHeaderElementRect.left + groupHeaderElementRect.width) >= divide_dist))
+        !(tabElementRect.x === groupHeaderElementRect.x) &&
+        ((groupHeaderElementRect.left >= tabElementRect.left &&
+          groupHeaderElementRect.left - (tabElementRect.left + tabElementRect.width) <= dist) ||
+          (groupHeaderElementRect.left <= tabElementRect.left &&
+            tabElementRect.left - (groupHeaderElementRect.left + groupHeaderElementRect.width) <= dist)) &&
+        ((groupHeaderElementRect.top >= tabElementRect.top &&
+          groupHeaderElementRect.top - (tabElementRect.top + tabElementRect.height) <= dist) ||
+          (groupHeaderElementRect.top <= tabElementRect.top &&
+            tabElementRect.top - (groupHeaderElementRect.top + groupHeaderElementRect.height) <= dist))
       ) {
+        tabElement.style.transform = "translate(0px, 0px)";
+        tabElement.setAttribute("data-positions", JSON.stringify({ x: 0, y: 0 }));
+        return;
+      }
+
+      // combine tab
+      // todo: combine tab to closest group
+      let closestGroupId = "";
+      const groupHeaderElements = document.querySelectorAll("[data-group-header]");
+      groupHeaderElements.forEach((groupHeaderElement) => {
+        const groupElement = groupHeaderElement.parentElement;
+        if (groupElement) {
+          if (groupElement.id === groupIdProp) return;
+          const groupHeaderElementRect = groupHeaderElement.getBoundingClientRect();
+
+          if (
+            ((groupHeaderElementRect.left >= tabElementRect.left &&
+              groupHeaderElementRect.left - (tabElementRect.left + tabElementRect.width) <= dist) ||
+              (groupHeaderElementRect.left <= tabElementRect.left &&
+                tabElementRect.left - (groupHeaderElementRect.left + groupHeaderElementRect.width) <= dist)) &&
+            ((groupHeaderElementRect.top >= tabElementRect.top &&
+              groupHeaderElementRect.top - (tabElementRect.top + tabElementRect.height) <= dist) ||
+              (groupHeaderElementRect.top <= tabElementRect.top &&
+                tabElementRect.top - (groupHeaderElementRect.top + groupHeaderElementRect.height) <= dist))
+          ) {
+            dataDispatch({
+              type: "COMBINE_TAB",
+              payload: {
+                currGroupId: groupIdProp,
+                targetGroupId: groupElement.id,
+                tabId,
+              },
+            });
+            closestGroupId = groupElement.id;
+            return;
+          }
+        }
+      });
+      if (closestGroupId !== "") return;
+
+      // divide tab
+      if (tabElementRect.x !== groupHeaderElementRect.x) {
         dataDispatch({
           type: "DIVIDE_TAB",
           payload: {
@@ -389,11 +447,6 @@ const Tab = React.forwardRef<React.ElementRef<"div">, ITabProps>((props, forward
             clientY: e.clientY,
           },
         });
-      } else if (false) {
-        // todo: combine tabs
-      } else {
-        tabElement.style.transform = "translate(0px, 0px)";
-        tabElement.setAttribute("data-positions", JSON.stringify({ x: 0, y: 0 }));
       }
     }
   };
@@ -408,10 +461,11 @@ const Tab = React.forwardRef<React.ElementRef<"div">, ITabProps>((props, forward
   return (
     <div
       style={dynamicStyle}
-      className="absolute w-[60px] h-[30px] bg-blue-300 cursor-pointer border-r-2 z-10"
+      className="absolute w-[60px] h-[30px] bg-blue-300 cursor-pointer border-r-2"
       ref={tabRef}
       onMouseDown={handleMouseDown}
       onMouseUp={handleMouseUp}
+      data-group-id={groupIdProp}
       data-tab-id={tabId}
       data-tab-is-dragging={false}
       data-positions={JSON.stringify(positions)}
