@@ -12,7 +12,9 @@ interface IGroup {
     id: string;
     tabIds: string[];
     size: { width: number; height: number };
+    prevSize: { width: number; height: number };
     position: { x: number; y: number };
+    prevPosition: { x: number; y: number };
   };
 }
 interface ITab {
@@ -28,20 +30,53 @@ type ContextType = {
 type ActionType =
   | {
       type: "DIVIDE_TAB";
-      payload: { groupId: string; tabId: string; tabOrder: number; clientX: number; clientY: number };
+      payload: {
+        groupId: string;
+        tabId: string;
+        tabOrder: number;
+        size: { width: number; height: number };
+        clientX: number;
+        clientY: number;
+      };
     }
-  | { type: "COMBINE_TAB"; payload: { currGroupId: string; targetGroupId: string; tabId: string; tabOrder: number } };
+  | { type: "COMBINE_TAB"; payload: { currGroupId: string; targetGroupId: string; tabId: string; tabOrder: number } }
+  | {
+      type: "RESIZE_GROUP_BY_CLICK_HEADER";
+      payload: {
+        groupId: string;
+        size: { width: number; height: number };
+        prevSize: { width: number; height: number };
+        isFullScreen: boolean;
+      };
+    }
+  | {
+      type: "UPDATE_GROUP_POSITION_WITH_TRANSFORM";
+      payload: {
+        groupId: string;
+        transformValue: { x: number; y: number };
+      };
+    }
+  | {
+      type: "UPDATE_GROUP_POSITION";
+      payload: {
+        groupId: string;
+        x: number;
+        y: number;
+      };
+    };
 
 const reducer = (state: ContextType, action: ActionType) => {
   switch (action.type) {
     case "DIVIDE_TAB": {
-      const { groupId, tabId, tabOrder, clientX, clientY } = action.payload;
+      const { groupId, tabId, tabOrder, size, clientX, clientY } = action.payload;
       state.group[groupId].tabIds.splice(tabOrder, 1);
 
       const newGroupId = uuidv4();
       state.group[newGroupId] = {
         id: newGroupId,
         tabIds: [tabId],
+        size,
+        prevSize: { width: 0, height: 0 },
         position: {
           x: clientX,
           y: clientY,
@@ -61,6 +96,38 @@ const reducer = (state: ContextType, action: ActionType) => {
         state.group[currGroupId].tabIds.splice(tabIdx, 1);
       }
       state.group[targetGroupId].tabIds.push(tabId);
+      return { ...state };
+    }
+    case "RESIZE_GROUP_BY_CLICK_HEADER": {
+      const { groupId, size, prevSize, isFullScreen } = action.payload;
+      if (!state.group[groupId]) return state;
+
+      if (isFullScreen) {
+        state.group[groupId].size = state.group[groupId].prevSize;
+        state.group[groupId].position = state.group[groupId].prevPosition;
+      } else {
+        state.group[groupId].size = size;
+        state.group[groupId].prevSize = prevSize;
+        state.group[groupId].prevPosition = state.group[groupId].position;
+        state.group[groupId].position = { x: 0, y: 0 };
+      }
+      return { ...state };
+    }
+    case "UPDATE_GROUP_POSITION_WITH_TRANSFORM": {
+      const { groupId, transformValue } = action.payload;
+      if (!state.group[groupId]) return state;
+
+      state.group[groupId].position = {
+        x: state.group[groupId].position.x + transformValue.x,
+        y: state.group[groupId].position.y + transformValue.y,
+      };
+      return { ...state };
+    }
+    case "UPDATE_GROUP_POSITION": {
+      const { groupId, x, y } = action.payload;
+      if (!state.group[groupId]) return state;
+
+      state.group[groupId].position = { x, y };
       return { ...state };
     }
     default:
@@ -87,6 +154,7 @@ const Board: React.FC<{ children: React.ReactNode }> = ({ children }: { children
 
 const Container = ({ children }: { children: React.ReactNode }) => {
   const dataContext = useContext(DataStateContext);
+  const dataDispatch = useContext(DataDispatchContext);
 
   const handleMouseMove = (e: React.MouseEvent) => {
     const boardElement = document.querySelector("[data-board-is-dragging=true]");
@@ -209,7 +277,20 @@ const Container = ({ children }: { children: React.ReactNode }) => {
 
     const resizeElement = document.querySelector("[data-resize-is-dragging=true]");
     if (resizeElement) {
+      const dataGroupId = resizeElement.getAttribute("data-group-id");
       resizeElement.setAttribute("data-resize-is-dragging", "false");
+
+      const groupElement = document.getElementById(dataGroupId);
+      if (groupElement) {
+        dataDispatch({
+          type: "UPDATE_GROUP_POSITION",
+          payload: {
+            groupId: dataGroupId,
+            x: parseFloat(groupElement.style.left),
+            y: parseFloat(groupElement.style.top),
+          },
+        });
+      }
     }
   };
 
@@ -246,7 +327,7 @@ interface IGroupProps {
 }
 
 const Group = React.forwardRef<React.ElementRef<"div">, IGroupProps>((props, forwardedRef) => {
-  const { id: groupIdProp, position: initPositionProp } = props;
+  const { id: groupIdProp, size, position: initPositionProp } = props;
 
   const positions = useMemo(
     () => ({
@@ -264,10 +345,12 @@ const Group = React.forwardRef<React.ElementRef<"div">, IGroupProps>((props, for
 
   const dynamicStyle = useMemo(
     () => ({
+      width: size.width,
+      height: size.height,
       left: initPositionProp.x,
       top: initPositionProp.y,
     }),
-    [initPositionProp]
+    [size, initPositionProp]
   );
 
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -285,7 +368,7 @@ const Group = React.forwardRef<React.ElementRef<"div">, IGroupProps>((props, for
     <div
       ref={forwardedRef}
       style={dynamicStyle}
-      className="absolute w-[400px] h-[400px] bg-gray-100"
+      className="absolute bg-gray-100"
       id={groupIdProp}
       onMouseDown={handleMouseDown}
       data-group
@@ -299,7 +382,8 @@ const Group = React.forwardRef<React.ElementRef<"div">, IGroupProps>((props, for
 });
 
 const GroupHeader = React.forwardRef<React.ElementRef<"div">, IGroupProps>((props, forwardedRef) => {
-  const { tabIds, groupPositions } = props;
+  const { id: groupIdProp, tabIds, groupPositions } = props;
+  const dataDispatch = useContext(DataDispatchContext);
   const groupHeaderRef = useRef<React.ElementRef<"div">>(null);
 
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -314,14 +398,43 @@ const GroupHeader = React.forwardRef<React.ElementRef<"div">, IGroupProps>((prop
 
   const handleMouseUp = (e: React.MouseEvent) => {
     const headerElement = e.currentTarget as HTMLElement;
+    const gropuElement = headerElement.parentElement;
     if (headerElement) {
       headerElement.setAttribute("data-group-is-dragging", "false");
     }
 
-    if (headerElement.parentElement) {
-      const dataAttrPositions = headerElement.parentElement.getAttribute("data-positions");
-      const positionsValue = JSON.parse(dataAttrPositions) as typeof positions;
-      groupPositions.accPosition = positionsValue.accPosition;
+    // update group position and reset translate property
+    if (gropuElement) {
+      const regex = /translate\((-?\d+)px,\s*(-?\d+)px\)/;
+      const match = gropuElement.style.transform.match(regex);
+      if (match) {
+        dataDispatch({
+          type: "UPDATE_GROUP_POSITION_WITH_TRANSFORM",
+          payload: {
+            groupId: groupIdProp,
+            transformValue: { x: parseFloat(match[1]), y: parseFloat(match[2]) },
+          },
+        });
+      }
+      gropuElement.style.transform = `translate(0px, 0px)`;
+    }
+  };
+
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    const groupElement = e.currentTarget.parentElement;
+    const containerElement = groupElement?.parentElement;
+    if (groupElement && containerElement) {
+      dataDispatch({
+        type: "RESIZE_GROUP_BY_CLICK_HEADER",
+        payload: {
+          groupId: groupIdProp,
+          size: { width: containerElement.clientWidth, height: containerElement.clientHeight },
+          prevSize: { width: groupElement.clientWidth, height: groupElement.clientHeight },
+          isFullScreen:
+            groupElement.clientWidth === containerElement.clientWidth &&
+            groupElement.clientHeight === containerElement.clientHeight,
+        },
+      });
     }
   };
 
@@ -331,6 +444,7 @@ const GroupHeader = React.forwardRef<React.ElementRef<"div">, IGroupProps>((prop
       ref={groupHeaderRef}
       onMouseDown={handleMouseDown}
       onMouseUp={handleMouseUp}
+      onDoubleClick={handleDoubleClick}
       data-group-is-dragging={false}
       data-group-header
     >
@@ -348,7 +462,6 @@ interface ITabProps extends IGroupProps {
 
 const Tab = React.forwardRef<React.ElementRef<"div">, ITabProps>((props, forwardedRef) => {
   const { id: groupIdProp, tabId, tabOrder } = props;
-  const dataContext = useContext(DataStateContext);
   const dataDispatch = useContext(DataDispatchContext);
   const tabRef = useRef<React.ElementRef<"div">>(null);
 
@@ -436,13 +549,15 @@ const Tab = React.forwardRef<React.ElementRef<"div">, ITabProps>((props, forward
       if (closestGroupId !== "") return;
 
       // divide tab
-      if (tabElementRect.x !== groupHeaderElementRect.x) {
+      const groupElement = document.getElementById(groupIdProp);
+      if (groupElement && tabElementRect.x !== groupHeaderElementRect.x) {
         dataDispatch({
           type: "DIVIDE_TAB",
           payload: {
             groupId: groupIdProp,
             tabId,
             tabOrder,
+            size: { width: groupElement.clientWidth, height: groupElement.clientHeight },
             clientX: e.clientX,
             clientY: e.clientY,
           },
@@ -503,6 +618,8 @@ const resizeHandlerVariants = cva("absolute", {
 });
 
 const ResizeHandlers = ({ groupId }: { groupId: string }) => {
+  const dataDispatch = useContext(DataDispatchContext);
+
   const positions = useMemo(
     () => ({
       lastPosition: {
@@ -531,6 +648,18 @@ const ResizeHandlers = ({ groupId }: { groupId: string }) => {
     const resizeElement = e.target as HTMLElement;
     if (resizeElement) {
       resizeElement.setAttribute("data-resize-is-dragging", "false");
+    }
+
+    const groupElement = document.getElementById(groupId);
+    if (groupElement) {
+      dataDispatch({
+        type: "UPDATE_GROUP_POSITION",
+        payload: {
+          groupId,
+          x: parseFloat(groupElement.style.left),
+          y: parseFloat(groupElement.style.top),
+        },
+      });
     }
   };
 

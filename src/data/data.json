@@ -8,12 +8,20 @@
         "afa61212-fd95-447a-b1a9-22e4ce3c142e"
       ],
       "size": {
-        "width": 500,
-        "height": 500
+        "width": 400,
+        "height": 400
+      },
+      "prevSize": {
+        "width": 0,
+        "height": 0
       },
       "position": {
         "x": 400,
         "y": 400
+      },
+      "prevPosition": {
+        "x": 0,
+        "y": 0
       }
     }
   },
