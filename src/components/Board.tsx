@@ -447,6 +447,10 @@ const Tab = React.forwardRef<React.ElementRef<"div">, ITabProps>((props, forward
             clientY: e.clientY,
           },
         });
+        const groupElements = document.querySelectorAll("[data-group]");
+        groupElements.forEach((groupElement) => {
+          groupElement.style.zIndex = "initial";
+        });
       }
     }
   };
