@@ -64,11 +64,7 @@ export const DataStateContext = createContext<ContextType>({
 
 export const DataDispatchContext = createContext<React.Dispatch<ActionType> | null>(null);
 
-const Board: React.FC<{ children: React.ReactNode }> = ({
-  children,
-}: {
-  children: React.ReactNode;
-}) => {
+const Board: React.FC<{ children: React.ReactNode }> = ({ children }: { children: React.ReactNode }) => {
   const [state, dispatch] = useReducer(reducer, mock);
 
   return (
@@ -268,7 +264,7 @@ const Group = React.forwardRef<React.ElementRef<"div">, IGroupProps>((props, for
     const groupElements = document.querySelectorAll("[data-group]");
     groupElements.forEach((groupElement) => {
       if (groupElement.id === e.currentTarget.id) {
-        groupElement.style.zIndex = "1";
+        groupElement.style.zIndex = "20";
       } else {
         groupElement.style.zIndex = "initial";
       }
@@ -292,49 +288,47 @@ const Group = React.forwardRef<React.ElementRef<"div">, IGroupProps>((props, for
   );
 });
 
-const GroupHeader = React.forwardRef<React.ElementRef<"div">, IGroupProps>(
-  (props, forwardedRef) => {
-    const { tabIds, groupPositions } = props;
-    const groupHeaderRef = useRef<React.ElementRef<"div">>(null);
+const GroupHeader = React.forwardRef<React.ElementRef<"div">, IGroupProps>((props, forwardedRef) => {
+  const { tabIds, groupPositions } = props;
+  const groupHeaderRef = useRef<React.ElementRef<"div">>(null);
 
-    const handleMouseDown = (e: React.MouseEvent) => {
-      const headerElement = e.currentTarget as HTMLElement;
-      if (headerElement) {
-        headerElement.setAttribute("data-group-is-dragging", "true");
-        groupPositions.lastPosition.x = e.clientX;
-        groupPositions.lastPosition.y = e.clientY;
-        headerElement.parentElement?.setAttribute("data-positions", JSON.stringify(groupPositions));
-      }
-    };
+  const handleMouseDown = (e: React.MouseEvent) => {
+    const headerElement = e.currentTarget as HTMLElement;
+    if (headerElement) {
+      headerElement.setAttribute("data-group-is-dragging", "true");
+      groupPositions.lastPosition.x = e.clientX;
+      groupPositions.lastPosition.y = e.clientY;
+      headerElement.parentElement?.setAttribute("data-positions", JSON.stringify(groupPositions));
+    }
+  };
 
-    const handleMouseUp = (e: React.MouseEvent) => {
-      const headerElement = e.currentTarget as HTMLElement;
-      if (headerElement) {
-        headerElement.setAttribute("data-group-is-dragging", "false");
-      }
+  const handleMouseUp = (e: React.MouseEvent) => {
+    const headerElement = e.currentTarget as HTMLElement;
+    if (headerElement) {
+      headerElement.setAttribute("data-group-is-dragging", "false");
+    }
 
-      if (headerElement.parentElement) {
-        const dataAttrPositions = headerElement.parentElement.getAttribute("data-positions");
-        const positionsValue = JSON.parse(dataAttrPositions) as typeof positions;
-        groupPositions.accPosition = positionsValue.accPosition;
-      }
-    };
+    if (headerElement.parentElement) {
+      const dataAttrPositions = headerElement.parentElement.getAttribute("data-positions");
+      const positionsValue = JSON.parse(dataAttrPositions) as typeof positions;
+      groupPositions.accPosition = positionsValue.accPosition;
+    }
+  };
 
-    return (
-      <div
-        className="w-full h-[30px] cursor-pointer bg-orange-300"
-        ref={groupHeaderRef}
-        onMouseDown={handleMouseDown}
-        onMouseUp={handleMouseUp}
-        data-group-is-dragging={false}
-      >
-        {tabIds.map((tabId, idx) => (
-          <Tab key={tabId} {...props} tabId={tabId} tabOrder={idx} />
-        ))}
-      </div>
-    );
-  }
-);
+  return (
+    <div
+      className="w-full h-[30px] cursor-pointer bg-orange-300"
+      ref={groupHeaderRef}
+      onMouseDown={handleMouseDown}
+      onMouseUp={handleMouseUp}
+      data-group-is-dragging={false}
+    >
+      {tabIds.map((tabId, idx) => (
+        <Tab key={tabId} {...props} tabId={tabId} tabOrder={idx} />
+      ))}
+    </div>
+  );
+});
 
 interface ITabProps extends IGroupProps {
   tabId: string;
@@ -343,6 +337,7 @@ interface ITabProps extends IGroupProps {
 
 const Tab = React.forwardRef<React.ElementRef<"div">, ITabProps>((props, forwardedRef) => {
   const { id: groupIdProp, tabId, tabOrder } = props;
+  const dataContext = useContext(DataStateContext);
   const dataDispatch = useContext(DataDispatchContext);
   const tabRef = useRef<React.ElementRef<"div">>(null);
 
@@ -374,20 +369,16 @@ const Tab = React.forwardRef<React.ElementRef<"div">, ITabProps>((props, forward
     const tabElement = e.target as HTMLElement;
     if (tabElement && tabElement.parentElement) {
       tabElement.setAttribute("data-tab-is-dragging", "false");
+      const divide_dist = 30;
       const tabElementRect = tabElement.getBoundingClientRect();
       const groupHeaderElementRect = tabElement.parentElement.getBoundingClientRect();
-
       if (
-        Math.abs(tabElementRect.top - groupHeaderElementRect.top) <= 30 ||
-        Math.abs(tabElementRect.left - groupHeaderElementRect.left) <= 30 ||
-        Math.abs(tabElementRect.bottom - groupHeaderElementRect.bottom) <= 30 ||
-        Math.abs(tabElementRect.right - groupHeaderElementRect.right) <= 30
+        (!(tabElementRect.x === groupHeaderElementRect.x && tabElementRect.y === groupHeaderElementRect.y) &&
+          Math.abs(tabElementRect.top + tabElementRect.height - groupHeaderElementRect.top) >= divide_dist &&
+          Math.abs(tabElementRect.top - (groupHeaderElementRect.top + groupHeaderElementRect.height)) >= divide_dist) ||
+        (Math.abs(tabElementRect.left + tabElementRect.width - groupHeaderElementRect.left) >= divide_dist &&
+          Math.abs(tabElementRect.left - (groupHeaderElementRect.left + groupHeaderElementRect.width) >= divide_dist))
       ) {
-        tabElement.style.transform = "translate(0px, 0px)";
-        tabElement.setAttribute("data-positions", JSON.stringify({ x: 0, y: 0 }));
-      } else if (false) {
-        // todo: combine tabs
-      } else {
         dataDispatch({
           type: "DIVIDE_TAB",
           payload: {
@@ -398,6 +389,11 @@ const Tab = React.forwardRef<React.ElementRef<"div">, ITabProps>((props, forward
             clientY: e.clientY,
           },
         });
+      } else if (false) {
+        // todo: combine tabs
+      } else {
+        tabElement.style.transform = "translate(0px, 0px)";
+        tabElement.setAttribute("data-positions", JSON.stringify({ x: 0, y: 0 }));
       }
     }
   };
@@ -412,7 +408,7 @@ const Tab = React.forwardRef<React.ElementRef<"div">, ITabProps>((props, forward
   return (
     <div
       style={dynamicStyle}
-      className="absolute w-[60px] h-[30px] bg-blue-300 cursor-pointer border-r-2"
+      className="absolute w-[60px] h-[30px] bg-blue-300 cursor-pointer border-r-2 z-10"
       ref={tabRef}
       onMouseDown={handleMouseDown}
       onMouseUp={handleMouseUp}
@@ -433,12 +429,11 @@ enum ResizeDirection {
   BottomLeft,
   BottomRight,
 }
-const resizeHandlerVariants = cva("absolute bg-gray-300", {
+const resizeHandlerVariants = cva("absolute", {
   variants: {
     direction: {
       [ResizeDirection.Top]: "top-0 left-[10px] w-[calc(100%-20px)] h-[10px] cursor-ns-resize",
-      [ResizeDirection.Bottom]:
-        "bottom-0 left-[10px] w-[calc(100%-20px)] h-[10px] cursor-ns-resize",
+      [ResizeDirection.Bottom]: "bottom-0 left-[10px] w-[calc(100%-20px)] h-[10px] cursor-ns-resize",
       [ResizeDirection.Left]: "left-0 top-[10px] w-[10px] h-[calc(100%-20px)] cursor-ew-resize",
       [ResizeDirection.Right]: "right-0 top-[10px] w-[10px] h-[calc(100%-20px)] cursor-ew-resize",
       [ResizeDirection.TopLeft]: "top-0 left-0 w-[10px] h-[10px] cursor-nwse-resize	",
