@@ -50,13 +50,6 @@ type ActionType =
       };
     }
   | {
-      type: "UPDATE_GROUP_POSITION_WITH_TRANSFORM";
-      payload: {
-        groupId: string;
-        transformValue: { x: number; y: number };
-      };
-    }
-  | {
       type: "UPDATE_GROUP_POSITION";
       payload: {
         groupId: string;
@@ -113,16 +106,6 @@ const reducer = (state: ContextType, action: ActionType) => {
       }
       return { ...state };
     }
-    case "UPDATE_GROUP_POSITION_WITH_TRANSFORM": {
-      const { groupId, transformValue } = action.payload;
-      if (!state.group[groupId]) return state;
-
-      state.group[groupId].position = {
-        x: state.group[groupId].position.x + transformValue.x,
-        y: state.group[groupId].position.y + transformValue.y,
-      };
-      return { ...state };
-    }
     case "UPDATE_GROUP_POSITION": {
       const { groupId, x, y } = action.payload;
       if (!state.group[groupId]) return state;
@@ -152,6 +135,11 @@ const Board: React.FC<{ children: React.ReactNode }> = ({ children }: { children
   );
 };
 
+interface IPosition {
+  x: number;
+  y: number;
+}
+
 const Container = ({ children }: { children: React.ReactNode }) => {
   const dataContext = useContext(DataStateContext);
   const dataDispatch = useContext(DataDispatchContext);
@@ -159,47 +147,47 @@ const Container = ({ children }: { children: React.ReactNode }) => {
   const handleMouseMove = (e: React.MouseEvent) => {
     const boardElement = document.querySelector("[data-board-is-dragging=true]");
     const groupHeaderElement = document.querySelector("[data-group-is-dragging=true]");
-    const tabElement = document.querySelector("[data-tab-is-dragging=true]");
+    const tabElement = document.querySelector("[data-tab-is-dragging=true]") as HTMLElement;
     const resizeElement = document.querySelector("[data-resize-is-dragging=true]");
 
     if (!boardElement) return;
     if (resizeElement) {
-      const dataAttrPositions = resizeElement.getAttribute("data-positions");
+      const dataAttrPositions = resizeElement.getAttribute("data-position");
       const dataAttrDirection = resizeElement.getAttribute("data-direction");
       const dataGroupId = resizeElement.getAttribute("data-group-id");
       if (dataAttrDirection && dataGroupId) {
-        const positions = JSON.parse(dataAttrPositions) as any;
+        const position = JSON.parse(dataAttrPositions) as any;
         const direction = JSON.parse(dataAttrDirection) as any;
         const groupElement = document.getElementById(dataGroupId);
 
         if (groupElement) {
-          const deltaX = e.clientX - positions.lastPosition.x;
-          const deltaY = e.clientY - positions.lastPosition.y;
+          const deltaX = e.clientX - position.x;
+          const deltaY = e.clientY - position.y;
 
           const handleTop = () => {
             if (groupElement.clientHeight - deltaY <= 200) return;
             groupElement.style.top = `${groupElement.offsetTop + deltaY}px`;
             groupElement.style.height = `${groupElement.clientHeight - deltaY}px`;
-            positions.lastPosition.y = e.clientY;
+            position.y = e.clientY;
           };
 
           const handleBottom = () => {
             if (groupElement.clientHeight + deltaY <= 200) return;
             groupElement.style.height = `${groupElement.clientHeight + deltaY}px`;
-            positions.lastPosition.y = e.clientY;
+            position.y = e.clientY;
           };
 
           const handleLeft = () => {
             if (groupElement.clientWidth - deltaX <= 350) return;
             groupElement.style.left = `${groupElement.offsetLeft + deltaX}px`;
             groupElement.style.width = `${groupElement.clientWidth - deltaX}px`;
-            positions.lastPosition.x = e.clientX;
+            position.x = e.clientX;
           };
 
           const handleRight = () => {
             if (groupElement.clientWidth + deltaX <= 350) return;
             groupElement.style.width = `${groupElement.clientWidth + deltaX}px`;
-            positions.lastPosition.x = e.clientX;
+            position.x = e.clientX;
           };
 
           if (direction === ResizeDirection.Top) {
@@ -223,41 +211,39 @@ const Container = ({ children }: { children: React.ReactNode }) => {
             handleBottom();
             handleRight();
           }
-          resizeElement.setAttribute("data-positions", JSON.stringify(positions));
+          resizeElement.setAttribute("data-position", JSON.stringify(position));
         }
       }
       return;
     }
 
     if (tabElement) {
-      const dataAttrPositions = tabElement.getAttribute("data-positions");
+      const dataAttrPosition = tabElement.getAttribute("data-position");
       const dataGroupId = tabElement.getAttribute("data-group-id");
-      if (dataAttrPositions && dataContext.group[dataGroupId] && dataContext.group[dataGroupId].tabIds.length > 1) {
-        const positions = JSON.parse(dataAttrPositions) as any;
-        const deltaX = e.clientX - positions.lastPosition.x;
-        const deltaY = e.clientY - positions.lastPosition.y;
-        positions.accPosition.x += deltaX;
-        positions.accPosition.y += deltaY;
-        tabElement.style.transform = `translate(${positions.accPosition.x}px, ${positions.accPosition.y}px)`;
-        positions.lastPosition.x = e.clientX;
-        positions.lastPosition.y = e.clientY;
-        tabElement.setAttribute("data-positions", JSON.stringify(positions));
+      if (dataAttrPosition && dataContext.group[dataGroupId] && dataContext.group[dataGroupId].tabIds.length > 1) {
+        const position = JSON.parse(dataAttrPosition) as IPosition;
+        const deltaX = e.clientX - position.x;
+        const deltaY = e.clientY - position.y;
+        tabElement.style.top = `${tabElement.offsetTop + deltaY}px`;
+        tabElement.style.left = `${tabElement.offsetLeft + deltaX}px`;
+        position.x = e.clientX;
+        position.y = e.clientY;
+        tabElement.setAttribute("data-position", JSON.stringify(position));
         return;
       }
     }
 
     if (groupHeaderElement && groupHeaderElement.parentElement) {
-      const dataAttrPositions = groupHeaderElement.parentElement.getAttribute("data-positions");
-      if (dataAttrPositions) {
-        const positions = JSON.parse(dataAttrPositions) as any;
-        const deltaX = e.clientX - positions.lastPosition.x;
-        const deltaY = e.clientY - positions.lastPosition.y;
-        positions.accPosition.x += deltaX;
-        positions.accPosition.y += deltaY;
-        groupHeaderElement.parentElement.style.transform = `translate(${positions.accPosition.x}px, ${positions.accPosition.y}px)`;
-        positions.lastPosition.x = e.clientX;
-        positions.lastPosition.y = e.clientY;
-        groupHeaderElement.parentElement.setAttribute("data-positions", JSON.stringify(positions));
+      const dataAttrPosition = groupHeaderElement.parentElement.getAttribute("data-position");
+      if (dataAttrPosition) {
+        const position = JSON.parse(dataAttrPosition) as IPosition;
+        const deltaX = e.clientX - position.x;
+        const deltaY = e.clientY - position.y;
+        groupHeaderElement.parentElement.style.top = `${groupHeaderElement.parentElement.offsetTop + deltaY}px`;
+        groupHeaderElement.parentElement.style.left = `${groupHeaderElement.parentElement.offsetLeft + deltaX}px`;
+        position.x = e.clientX;
+        position.y = e.clientY;
+        groupHeaderElement.parentElement.setAttribute("data-position", JSON.stringify(position));
       }
     }
   };
@@ -329,16 +315,10 @@ interface IGroupProps {
 const Group = React.forwardRef<React.ElementRef<"div">, IGroupProps>((props, forwardedRef) => {
   const { id: groupIdProp, size, position: initPositionProp } = props;
 
-  const positions = useMemo(
+  const position = useMemo(
     () => ({
-      lastPosition: {
-        x: 0,
-        y: 0,
-      },
-      accPosition: {
-        x: 0,
-        y: 0,
-      },
+      x: 0,
+      y: 0,
     }),
     []
   );
@@ -372,9 +352,9 @@ const Group = React.forwardRef<React.ElementRef<"div">, IGroupProps>((props, for
       id={groupIdProp}
       onMouseDown={handleMouseDown}
       data-group
-      data-positions={JSON.stringify(positions)}
+      data-position={JSON.stringify(position)}
     >
-      <GroupHeader {...props} groupPositions={positions} />
+      <GroupHeader {...props} groupPositions={position} />
       <ResizeHandlers groupId={groupIdProp} />
       <div>{groupIdProp}</div>
     </div>
@@ -390,33 +370,28 @@ const GroupHeader = React.forwardRef<React.ElementRef<"div">, IGroupProps>((prop
     const headerElement = e.currentTarget as HTMLElement;
     if (headerElement) {
       headerElement.setAttribute("data-group-is-dragging", "true");
-      groupPositions.lastPosition.x = e.clientX;
-      groupPositions.lastPosition.y = e.clientY;
-      headerElement.parentElement?.setAttribute("data-positions", JSON.stringify(groupPositions));
+      groupPositions.x = e.clientX;
+      groupPositions.y = e.clientY;
+      headerElement.parentElement?.setAttribute("data-position", JSON.stringify(groupPositions));
     }
   };
 
   const handleMouseUp = (e: React.MouseEvent) => {
     const headerElement = e.currentTarget as HTMLElement;
-    const gropuElement = headerElement.parentElement;
     if (headerElement) {
       headerElement.setAttribute("data-group-is-dragging", "false");
     }
 
-    // update group position and reset translate property
-    if (gropuElement) {
-      const regex = /translate\((-?\d+)px,\s*(-?\d+)px\)/;
-      const match = gropuElement.style.transform.match(regex);
-      if (match) {
-        dataDispatch({
-          type: "UPDATE_GROUP_POSITION_WITH_TRANSFORM",
-          payload: {
-            groupId: groupIdProp,
-            transformValue: { x: parseFloat(match[1]), y: parseFloat(match[2]) },
-          },
-        });
-      }
-      gropuElement.style.transform = `translate(0px, 0px)`;
+    const groupElement = document.getElementById(groupIdProp);
+    if (groupElement) {
+      dataDispatch({
+        type: "UPDATE_GROUP_POSITION",
+        payload: {
+          groupId: groupIdProp,
+          x: parseFloat(groupElement.style.left),
+          y: parseFloat(groupElement.style.top),
+        },
+      });
     }
   };
 
@@ -465,16 +440,10 @@ const Tab = React.forwardRef<React.ElementRef<"div">, ITabProps>((props, forward
   const dataDispatch = useContext(DataDispatchContext);
   const tabRef = useRef<React.ElementRef<"div">>(null);
 
-  const positions = useMemo(
+  const position = useMemo(
     () => ({
-      lastPosition: {
-        x: 0,
-        y: 0,
-      },
-      accPosition: {
-        x: 0,
-        y: 0,
-      },
+      x: 0,
+      y: 0,
     }),
     []
   );
@@ -483,9 +452,9 @@ const Tab = React.forwardRef<React.ElementRef<"div">, ITabProps>((props, forward
     const tabElement = e.target as HTMLElement;
     if (tabElement) {
       tabElement.setAttribute("data-tab-is-dragging", "true");
-      positions.lastPosition.x = e.clientX;
-      positions.lastPosition.y = e.clientY;
-      tabElement.setAttribute("data-positions", JSON.stringify(positions));
+      position.x = e.clientX;
+      position.y = e.clientY;
+      tabElement.setAttribute("data-position", JSON.stringify(position));
     }
   };
 
@@ -508,8 +477,9 @@ const Tab = React.forwardRef<React.ElementRef<"div">, ITabProps>((props, forward
           (groupHeaderElementRect.top <= tabElementRect.top &&
             tabElementRect.top - (groupHeaderElementRect.top + groupHeaderElementRect.height) <= dist))
       ) {
-        tabElement.style.transform = "translate(0px, 0px)";
-        tabElement.setAttribute("data-positions", JSON.stringify({ x: 0, y: 0 }));
+        tabElement.style.left = `${tabOrder * 60}px`;
+        tabElement.style.top = 0;
+        tabElement.setAttribute("data-position", JSON.stringify({ x: 0, y: 0 }));
         return;
       }
 
@@ -587,7 +557,7 @@ const Tab = React.forwardRef<React.ElementRef<"div">, ITabProps>((props, forward
       data-group-id={groupIdProp}
       data-tab-id={tabId}
       data-tab-is-dragging={false}
-      data-positions={JSON.stringify(positions)}
+      data-position={JSON.stringify(position)}
     />
   );
 });
@@ -620,16 +590,10 @@ const resizeHandlerVariants = cva("absolute", {
 const ResizeHandlers = ({ groupId }: { groupId: string }) => {
   const dataDispatch = useContext(DataDispatchContext);
 
-  const positions = useMemo(
+  const position = useMemo(
     () => ({
-      lastPosition: {
-        x: 0,
-        y: 0,
-      },
-      accPosition: {
-        x: 0,
-        y: 0,
-      },
+      x: 0,
+      y: 0,
     }),
     []
   );
@@ -638,9 +602,9 @@ const ResizeHandlers = ({ groupId }: { groupId: string }) => {
     const resizeElement = e.target as HTMLElement;
     if (resizeElement) {
       resizeElement.setAttribute("data-resize-is-dragging", "true");
-      positions.lastPosition.x = e.clientX;
-      positions.lastPosition.y = e.clientY;
-      resizeElement.setAttribute("data-positions", JSON.stringify(positions));
+      position.x = e.clientX;
+      position.y = e.clientY;
+      resizeElement.setAttribute("data-position", JSON.stringify(position));
     }
   };
 
@@ -675,7 +639,7 @@ const ResizeHandlers = ({ groupId }: { groupId: string }) => {
             onMouseUp={handleMouseUp}
             data-direction={JSON.stringify(ResizeDirection[key])}
             data-resize-is-dragging={false}
-            data-positions={JSON.stringify(positions)}
+            data-position={JSON.stringify(position)}
             data-group-id={groupId}
           />
         ))}
