@@ -25,7 +25,7 @@ interface ITab {
     id: string;
   };
 }
-type ContextType = {
+export type ContextType = {
   group: IGroup;
   tab: ITab;
 };
@@ -155,6 +155,11 @@ const Container = ({ children }: { children: React.ReactNode }) => {
   const dataDispatch = useContext(DataDispatchContext);
 
   const [showTabDividePreview, setShowTabDividePreview] = useState<null | IPreview>(null);
+  const showTabDividePreviewRef = useRef<null | IPreview>(null);
+
+  useEffect(() => {
+    showTabDividePreviewRef.current = showTabDividePreview;
+  }, [showTabDividePreview]);
 
   const handleMouseMove = (e: React.MouseEvent) => {
     const boardElement = document.querySelector("[data-board-is-dragging=true]");
@@ -254,7 +259,7 @@ const Container = ({ children }: { children: React.ReactNode }) => {
     }
 
     if (tabElement) {
-      handleMoveTab();
+      handleMoveTab(e);
       const dataAttrPosition = tabElement.getAttribute("data-position");
       const dataGroupId = tabElement.getAttribute("data-group-id");
       if (dataAttrPosition && dataContext.group[dataGroupId] && dataContext.group[dataGroupId].tabIds.length > 1) {
@@ -347,16 +352,19 @@ const Container = ({ children }: { children: React.ReactNode }) => {
     }
   };
 
-  const handleMoveTab = () => {
+  const handleMoveTab = (e: React.MouseEvent) => {
     const tabElement = document.querySelector("[data-tab-is-dragging=true]") as HTMLElement;
     if (!tabElement) return;
 
-    const tabMoveStatus = getTabMoveStatus();
+    const tabMoveStatus = getTabMoveStatus(dataContext);
+
     if (tabMoveStatus === TabMoveStatus.Divide) {
+      tabElement.style.backgroundColor = "transparent";
+      tabElement.innerText = "";
       const currGroupId = tabElement.getAttribute("data-group-id");
       const currGroupElement = document.getElementById(currGroupId);
 
-      if (!currGroupElement || dataContext.group[currGroupId].tabIds.length === 1) return;
+      if (!containerRef.current || !currGroupElement || dataContext.group[currGroupId].tabIds.length === 1) return;
       const tabElementRect = tabElement.getBoundingClientRect();
       let deltaX = tabElementRect.left;
       let deltaY = tabElementRect.top;
@@ -366,14 +374,65 @@ const Container = ({ children }: { children: React.ReactNode }) => {
       if (deltaX < minLeft) deltaX = minLeft;
       if (deltaX > maxLeft) deltaX = maxLeft;
 
+      const { clientWidth: containerWidth, clientHeight: containerHeight, offsetTop: containerTop } = containerRef.current;
+
+      if (e.clientY <= 0) {
+        setShowTabDividePreview({
+          size: { width: containerWidth, height: containerHeight / 2 },
+          position: {
+            x: 0,
+            y: containerTop,
+          },
+        });
+        return;
+      }
+
+      if (e.clientY >= window.innerHeight) {
+        setShowTabDividePreview({
+          size: { width: containerWidth, height: containerHeight / 2 },
+          position: {
+            x: 0,
+            y: containerHeight / 2 + containerTop,
+          },
+        });
+        return;
+      }
+
+      if (e.clientX <= 0) {
+        setShowTabDividePreview({
+          size: { width: containerWidth / 2, height: containerHeight },
+          position: {
+            x: 0,
+            y: containerTop,
+          },
+        });
+        return;
+      }
+
+      if (e.clientX >= containerWidth) {
+        setShowTabDividePreview({
+          size: { width: containerWidth / 2, height: containerHeight },
+          position: {
+            x: containerWidth / 2,
+            y: containerTop,
+          },
+        });
+        return;
+      }
+
+      let dClientX = e.clientX > maxLeft ? maxLeft : e.clientX < minLeft ? minLeft : e.clientX;
+      let dClientY = e.clientY > maxTop ? maxTop : e.clientY < minTop ? minTop : e.clientY;
       setShowTabDividePreview({
         size: { width: currGroupElement.clientWidth, height: currGroupElement.clientHeight },
         position: {
-          x: deltaX,
-          y: deltaY,
+          x: dClientX,
+          y: dClientY,
         },
       });
     } else {
+      const currTabOrder = tabElement.getAttribute("data-tab-order");
+      tabElement.style.backgroundColor = "gray";
+      tabElement.innerText = currTabOrder;
       setShowTabDividePreview(null);
     }
   };
@@ -382,13 +441,13 @@ const Container = ({ children }: { children: React.ReactNode }) => {
     const tabElement = document.querySelector("[data-tab-is-dragging=true]") as HTMLElement;
     if (!tabElement) return;
 
-    const tabMoveStatus = getTabMoveStatus();
+    const tabMoveStatus = getTabMoveStatus(dataContext);
     tabElement.setAttribute("data-tab-is-dragging", "false");
-    setShowTabDividePreview(null);
 
     const currGroupId = tabElement.getAttribute("data-group-id");
     const currTabId = tabElement.getAttribute("data-tab-id");
     const currTabOrder = tabElement.getAttribute("data-tab-order");
+    tabElement.innerText = currTabOrder;
     const currGroupElement = document.getElementById(currGroupId);
     if (!currGroupElement || !currGroupId || !currTabId || !currTabOrder) return;
 
@@ -413,23 +472,27 @@ const Container = ({ children }: { children: React.ReactNode }) => {
       });
     } else {
       if (dataContext.group[currGroupId].tabIds.length === 1) return;
-      const { minTop, maxTop, minLeft, maxLeft } = getGroupMinMaxPositions(containerRef, currGroupElement);
-      dataDispatch({
-        type: "DIVIDE_TAB",
-        payload: {
-          groupId: currGroupId,
-          tabId: currTabId,
-          tabOrder: currTabOrder,
-          size: { width: currGroupElement.clientWidth, height: currGroupElement.clientHeight },
-          clientX: e.clientX > maxLeft ? maxLeft : e.clientX < minLeft ? minLeft : e.clientX,
-          clientY: e.clientY > maxTop ? maxTop : e.clientY < minTop ? minTop : e.clientY,
-        },
-      });
+
+      if (showTabDividePreviewRef.current) {
+        dataDispatch({
+          type: "DIVIDE_TAB",
+          payload: {
+            groupId: currGroupId,
+            tabId: currTabId,
+            tabOrder: currTabOrder,
+            size: { width: showTabDividePreviewRef.current.size.width, height: showTabDividePreviewRef.current.size.height },
+            clientX: showTabDividePreviewRef.current.position.x,
+            clientY: showTabDividePreviewRef.current.position.y,
+          },
+        });
+      }
       const groupElements = document.querySelectorAll("[data-group]");
       groupElements.forEach((groupElement) => {
         groupElement.style.zIndex = "initial";
       });
     }
+
+    setShowTabDividePreview(null);
   };
 
   useEffect(() => {
@@ -599,8 +662,8 @@ const Tab = React.forwardRef<React.ElementRef<"div">, ITabProps>((props, forward
 
   return (
     <div
-      className="absolute w-[60px] h-[30px] bg-blue-300 cursor-pointer"
-      style={{ left: tabOrder * 60 }}
+      className="absolute w-[60px] h-[30px] cursor-pointer"
+      style={{ left: tabOrder * 60, backgroundColor: "gray" }}
       ref={tabRef}
       onMouseDown={handleMouseDown}
       data-group-id={groupIdProp}

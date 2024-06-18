@@ -1,10 +1,12 @@
+import { ContextType } from "../components/Board";
+
 export enum TabMoveStatus {
   Default,
   Divide,
   Combine,
 }
 
-export default function getTabMoveStatus() {
+export default function getTabMoveStatus(dataContext: ContextType) {
   const tabElement = document.querySelector("[data-tab-is-dragging=true]");
   if (tabElement && tabElement.parentElement) {
     const currGroupId = tabElement.getAttribute("data-group-id");
@@ -60,7 +62,12 @@ export default function getTabMoveStatus() {
       return TabMoveStatus.Combine;
     }
 
+    // default
+    if (dataContext.group[currGroupId].tabIds.length === 1) {
+      return TabMoveStatus.Default;
+    }
+
     // divide
-    return TabMoveStatus.Divide;
+    if (tabElementRect.x !== groupHeaderElementRect.x) return TabMoveStatus.Divide;
   }
 }
