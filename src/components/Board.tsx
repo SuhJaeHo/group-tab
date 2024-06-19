@@ -60,6 +60,16 @@ type ActionType =
         x: number;
         y: number;
       };
+    }
+  | {
+      type: "UPDATE_GROUP_SIZE";
+      payload: {
+        groupId: string;
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+      };
     };
 
 const reducer = (state: ContextType, action: ActionType) => {
@@ -96,14 +106,14 @@ const reducer = (state: ContextType, action: ActionType) => {
       return { ...state };
     }
     case "RESIZE_GROUP_BY_CLICK_HEADER": {
-      const { groupId, size, prevSize, containerOffset, isFullScreen } = action.payload;
+      const { groupId, fullSize, prevSize, containerOffset, isFullScreen } = action.payload;
       if (!state.group[groupId]) return state;
 
       if (isFullScreen) {
         state.group[groupId].size = state.group[groupId].prevSize;
         state.group[groupId].position = state.group[groupId].prevPosition;
       } else {
-        state.group[groupId].size = size;
+        state.group[groupId].size = fullSize;
         state.group[groupId].prevSize = prevSize;
         state.group[groupId].prevPosition = state.group[groupId].position;
         state.group[groupId].position = { x: containerOffset.left, y: containerOffset.top };
@@ -115,6 +125,14 @@ const reducer = (state: ContextType, action: ActionType) => {
       if (!state.group[groupId]) return state;
 
       state.group[groupId].position = { x, y };
+      return { ...state };
+    }
+    case "UPDATE_GROUP_SIZE": {
+      const { groupId, x, y, width, height } = action.payload;
+      if (!state.group[groupId]) return state;
+
+      state.group[groupId].position = { x, y };
+      state.group[groupId].size = { width, height };
       return { ...state };
     }
     default:
@@ -341,11 +359,13 @@ const Container = ({ children }: { children: React.ReactNode }) => {
       const groupElement = document.getElementById(dataGroupId);
       if (groupElement) {
         dataDispatch({
-          type: "UPDATE_GROUP_POSITION",
+          type: "UPDATE_GROUP_SIZE",
           payload: {
             groupId: dataGroupId,
             x: parseFloat(groupElement.style.left),
             y: parseFloat(groupElement.style.top),
+            width: groupElement.clientWidth,
+            height: groupElement.clientHeight,
           },
         });
       }
@@ -380,7 +400,7 @@ const Container = ({ children }: { children: React.ReactNode }) => {
         setShowTabDividePreview({
           size: { width: containerWidth, height: containerHeight / 2 },
           position: {
-            x: 0,
+            x: minLeft,
             y: containerTop,
           },
         });
@@ -391,7 +411,7 @@ const Container = ({ children }: { children: React.ReactNode }) => {
         setShowTabDividePreview({
           size: { width: containerWidth, height: containerHeight / 2 },
           position: {
-            x: 0,
+            x: minLeft,
             y: containerHeight / 2 + containerTop,
           },
         });
@@ -402,7 +422,7 @@ const Container = ({ children }: { children: React.ReactNode }) => {
         setShowTabDividePreview({
           size: { width: containerWidth / 2, height: containerHeight },
           position: {
-            x: 0,
+            x: minLeft,
             y: containerTop,
           },
         });
@@ -472,7 +492,6 @@ const Container = ({ children }: { children: React.ReactNode }) => {
       });
     } else {
       if (dataContext.group[currGroupId].tabIds.length === 1) return;
-
       if (showTabDividePreviewRef.current) {
         dataDispatch({
           type: "DIVIDE_TAB",
@@ -606,7 +625,7 @@ const GroupHeader = React.forwardRef<React.ElementRef<"div">, IGroupProps>((prop
         type: "RESIZE_GROUP_BY_CLICK_HEADER",
         payload: {
           groupId: groupIdProp,
-          size: { width: containerElement.clientWidth, height: containerElement.clientHeight },
+          fullSize: { width: containerElement.clientWidth, height: containerElement.clientHeight },
           prevSize: { width: groupElement.clientWidth, height: groupElement.clientHeight },
           containerOffset: { top: containerElement.offsetTop, left: containerElement.offsetLeft },
           isFullScreen:
