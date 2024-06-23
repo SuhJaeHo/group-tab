@@ -27,6 +27,7 @@ export default function getTabMoveStatus(dataContext: ContextType) {
       ((groupHeaderTop >= tabTop && groupHeaderTop - (tabTop + tabHeight) <= distance) ||
         (groupHeaderTop <= tabTop && tabTop - (groupHeaderTop + groupHeaderHeight) <= distance))
     ) {
+      tabElement.removeAttribute("data-target-group-id");
       return TabMoveStatus.Default;
     }
 
@@ -64,6 +65,7 @@ export default function getTabMoveStatus(dataContext: ContextType) {
 
     // default
     if (dataContext.group[currGroupId].tabIds.length === 1) {
+      tabElement.removeAttribute("data-target-group-id");
       return TabMoveStatus.Default;
     }
 
