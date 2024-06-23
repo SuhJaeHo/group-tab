@@ -565,6 +565,7 @@ const Container = ({ children }: { children: React.ReactNode }) => {
               }
             }
           });
+          if (newOrder >= tabElements.length) newOrder = tabElements.length - 1;
           tabElement.setAttribute("data-tmp-order", JSON.stringify(newOrder));
           return;
         }
