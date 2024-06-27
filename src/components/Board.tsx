@@ -251,8 +251,10 @@ const Container = ({ children }: { children: React.ReactNode }) => {
 
           const handleLeft = () => {
             if (groupElement.clientWidth - deltaX <= 350) return;
+            const offsetRight = containerRef.current.offsetWidth - (groupElement.offsetLeft + groupElement.offsetWidth);
             if (groupElement.offsetLeft + deltaX <= minLeft) {
               groupElement.style.left = `${minLeft}px`;
+              groupElement.style.width = `${containerRef.current.offsetWidth - offsetRight}px`;
             } else {
               groupElement.style.left = `${groupElement.offsetLeft + deltaX}px`;
               groupElement.style.width = `${groupElement.clientWidth - deltaX}px`;
