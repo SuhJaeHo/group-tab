@@ -27,7 +27,7 @@ export default function getTabMoveStatus(dataContext: ContextType) {
       ((groupHeaderTop >= tabTop && groupHeaderTop - (tabTop + tabHeight) <= distance) ||
         (groupHeaderTop <= tabTop && tabTop - (groupHeaderTop + groupHeaderHeight) <= distance))
     ) {
-      tabElement.removeAttribute("data-target-group-id");
+      tabElement.setAttribute("data-is-combined", "false");
       return TabMoveStatus.Default;
     }
 
@@ -57,19 +57,21 @@ export default function getTabMoveStatus(dataContext: ContextType) {
         }
       }
     });
-
     if (closestGroupId !== "") {
-      tabElement.setAttribute("data-target-group-id", closestGroupId);
+      tabElement.setAttribute("data-combine-group-id", closestGroupId);
       return TabMoveStatus.Combine;
     }
 
     // default
     if (dataContext.group[currGroupId].tabIds.length === 1) {
-      tabElement.removeAttribute("data-target-group-id");
+      tabElement.setAttribute("data-is-combined", "false");
       return TabMoveStatus.Default;
     }
 
     // divide
-    if (tabElementRect.x !== groupHeaderElementRect.x) return TabMoveStatus.Divide;
+    if (tabElementRect.x !== groupHeaderElementRect.x) {
+      tabElement.setAttribute("data-is-combined", "false");
+      return TabMoveStatus.Divide;
+    }
   }
 }

@@ -1,7 +1,4 @@
-export default function getGroupMinMaxPositions(
-  containerRef: React.MutableRefObject<HTMLElement>,
-  groupElement: HTMLElement
-) {
+export default function getGroupMinMaxPositions(containerRef: React.MutableRefObject<HTMLElement>, groupElement: HTMLElement) {
   const {
     offsetTop: containerTop,
     offsetLeft: containerLeft,

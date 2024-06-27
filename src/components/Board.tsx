@@ -9,6 +9,9 @@ import { v4 as uuidv4 } from "uuid";
 import getGroupMinMaxPositions from "../utils/getGroupMinMaxPositions";
 import mock from "../data/data.json";
 import getTabMoveStatus, { TabMoveStatus } from "../utils/getTabMoveStatus";
+import groupTabsMoveWhenTabOut from "../utils/groupTabsMoveWhenTabOut";
+import groupTabsUpdatePositionWithTabOrder from "../utils/groupTabsUpdatePositionWithTabOrder";
+import getGroupNewTabListWithTabOrder from "../utils/getGroupNewTabListWithTabOrder";
 
 interface IGroup {
   [key: string]: {
@@ -44,7 +47,6 @@ type ActionType =
         clientY: number;
       };
     }
-  | { type: "COMBINE_TAB"; payload: { currGroupId: string; targetGroupId: string; tabId: string; tabOrder: number } }
   | {
       type: "RESIZE_GROUP_BY_CLICK_HEADER";
       payload: {
@@ -79,6 +81,15 @@ type ActionType =
         groupId: string;
         tabIds: string[];
       };
+    }
+  | {
+      type: "COMBINE_TAB";
+      payload: {
+        currGroupId: string;
+        targetGroupId: string;
+        currTabId: string;
+        newTabIds: string[];
+      };
     };
 
 const reducer = (state: ContextType, action: ActionType) => {
@@ -98,20 +109,6 @@ const reducer = (state: ContextType, action: ActionType) => {
           y: clientY,
         },
       };
-      return { ...state };
-    }
-    case "COMBINE_TAB": {
-      const { currGroupId, targetGroupId, tabId } = action.payload;
-      // todo: combine tab to closest group
-      if (!state.group[currGroupId]) return state;
-
-      if (state.group[currGroupId].tabIds.length <= 1) {
-        delete state.group[currGroupId];
-      } else {
-        const tabIdx = state.group[currGroupId].tabIds.indexOf(tabId);
-        state.group[currGroupId].tabIds.splice(tabIdx, 1);
-      }
-      state.group[targetGroupId].tabIds.push(tabId);
       return { ...state };
     }
     case "RESIZE_GROUP_BY_CLICK_HEADER": {
@@ -149,6 +146,19 @@ const reducer = (state: ContextType, action: ActionType) => {
       if (!state.group[groupId]) return state;
 
       state.group[groupId].tabIds = tabIds;
+      return { ...state };
+    }
+    case "COMBINE_TAB": {
+      const { currGroupId, targetGroupId, currTabId, newTabIds } = action.payload;
+      if (!state.group[currGroupId]) return state;
+
+      if (state.group[currGroupId].tabIds.length <= 1) {
+        delete state.group[currGroupId];
+      } else {
+        const tabIdx = state.group[currGroupId].tabIds.indexOf(currTabId);
+        state.group[currGroupId].tabIds.splice(tabIdx, 1);
+      }
+      state.group[targetGroupId].tabIds = newTabIds;
       return { ...state };
     }
     default:
@@ -231,13 +241,8 @@ const Container = ({ children }: { children: React.ReactNode }) => {
 
           const handleBottom = () => {
             if (groupElement.clientHeight + deltaY <= 200) return;
-            if (
-              groupElement.clientHeight + deltaY >=
-              containerRef.current.clientHeight - groupElement.offsetTop + containerRef.current.offsetTop
-            ) {
-              groupElement.style.height = `${
-                containerRef.current.clientHeight - groupElement.offsetTop + containerRef.current.offsetTop
-              }px`;
+            if (groupElement.clientHeight + deltaY >= containerRef.current.clientHeight - groupElement.offsetTop + containerRef.current.offsetTop) {
+              groupElement.style.height = `${containerRef.current.clientHeight - groupElement.offsetTop + containerRef.current.offsetTop}px`;
             } else {
               groupElement.style.height = `${groupElement.clientHeight + deltaY}px`;
               position.y = e.clientY;
@@ -389,20 +394,25 @@ const Container = ({ children }: { children: React.ReactNode }) => {
   };
 
   const handleMoveTab = (e: React.MouseEvent) => {
-    const tabElement = document.querySelector("[data-tab-is-dragging=true]") as HTMLElement;
-    const currGroupId = tabElement.getAttribute("data-group-id");
-    if (!tabElement || !currGroupId) return;
+    const currentTabElement = document.querySelector("[data-tab-is-dragging=true]") as HTMLElement;
+    const currentTabId = currentTabElement.getAttribute("data-tab-id");
+    const currentGroupId = currentTabElement.getAttribute("data-group-id");
+    const currentGroupHeaderElement = currentTabElement.parentElement;
+    if (!currentTabElement || !currentGroupHeaderElement || !currentGroupId) return;
+    const currentTabElementRect = currentTabElement.getBoundingClientRect();
+    const currentTabLeft = currentTabElementRect.left + currentTabElementRect.width;
+
+    const currentGroupElement = document.getElementById(currentGroupId);
+    if (!currentGroupElement) return;
 
     const tabMoveStatus = getTabMoveStatus(dataContext);
-
     if (tabMoveStatus === TabMoveStatus.Divide) {
-      const currGroupElement = document.getElementById(currGroupId);
+      // show tab indicator when tab catched to divide
+      if (!containerRef.current || dataContext.group[currentGroupId].tabIds.length === 1) return;
 
-      if (!containerRef.current || !currGroupElement || dataContext.group[currGroupId].tabIds.length === 1) return;
-      const tabElementRect = tabElement.getBoundingClientRect();
-      let deltaX = tabElementRect.left;
-      let deltaY = tabElementRect.top;
-      const { minTop, maxTop, minLeft, maxLeft } = getGroupMinMaxPositions(containerRef, currGroupElement);
+      let deltaX = currentTabElementRect.left;
+      let deltaY = currentTabElementRect.top;
+      const { minTop, maxTop, minLeft, maxLeft } = getGroupMinMaxPositions(containerRef, currentGroupElement);
       if (deltaY < minTop) deltaY = minTop;
       if (deltaY > maxTop) deltaY = maxTop;
       if (deltaX < minLeft) deltaX = minLeft;
@@ -454,147 +464,208 @@ const Container = ({ children }: { children: React.ReactNode }) => {
         return;
       }
 
-      let dClientX = e.clientX > maxLeft ? maxLeft : e.clientX < minLeft ? minLeft : e.clientX;
-      let dClientY = e.clientY > maxTop ? maxTop : e.clientY < minTop ? minTop : e.clientY;
+      let dClientX = e.clientX;
+      if (dClientX > maxLeft) dClientX = maxLeft;
+      if (dClientX < minLeft) dClientX = minLeft;
+      let dClientY = e.clientY;
+      if (dClientY > maxTop) dClientY = maxTop;
+      if (dClientY < minTop) dClientY = minTop;
       setShowTabDividePreview({
-        size: { width: currGroupElement.clientWidth, height: currGroupElement.clientHeight },
+        size: { width: currentGroupElement.clientWidth, height: currentGroupElement.clientHeight },
         position: {
           x: dClientX,
           y: dClientY,
         },
       });
 
-      // tab move when tab catched to divide
-      const currTabTmpOrder = tabElement.getAttribute("data-tmp-order");
-      const currTabTmpOrderNumber = Number(currTabTmpOrder);
-      if (!currTabTmpOrder || !tabElement.parentElement) return;
+      // if current tab element is combined with other group element, make combined group element's tab move
+      const combineGroupId = currentTabElement.getAttribute("data-combine-group-id");
+      const combineGroupElement = document.getElementById(combineGroupId);
+      if (combineGroupElement) {
+        groupTabsMoveWhenTabOut(combineGroupElement, currentTabElement);
+      }
 
-      if (tabElement.getAttribute("data-is-divided") === "true") return;
-      const tabElements = tabElement.parentElement.querySelectorAll("[data-tab-id]");
-      tabElements.forEach((tabElement) => {
-        const tabTmpOrder = tabElement.getAttribute("data-tmp-order");
-        const tabTmpOrderNumber = Number(tabTmpOrder);
-        const tabTransformStatus = tabElement.getAttribute("data-transform-status");
-        if (tabTmpOrderNumber === currTabTmpOrderNumber) return;
-        if (tabTmpOrderNumber > currTabTmpOrderNumber && tabElement instanceof HTMLElement) {
-          if (tabTransformStatus === "1") {
-            tabElement.style.transform = `translate(0px, 0px)`;
-            tabElement.setAttribute("data-transform-status", "0");
-            tabElement.setAttribute("data-tmp-order", JSON.stringify(tabTmpOrderNumber - 1));
-          } else if (tabTransformStatus === "-1") {
-            tabElement.style.transform = `translate(0px, 0px)`;
-            tabElement.setAttribute("data-transform-status", "0");
-            tabElement.setAttribute("data-tmp-order", JSON.stringify(tabTmpOrderNumber + 1));
-          } else {
-            tabElement.style.transform = `translate(-${tabElementRect.width}px ,0px)`;
-            tabElement.setAttribute("data-transform-status", "-1");
-            tabElement.setAttribute("data-tmp-order", JSON.stringify(tabTmpOrderNumber - 1));
-          }
-        }
-      });
-      tabElement.setAttribute("data-is-divided", "true");
-    } else {
+      // if current tab element is divided, make current group element's tab move
+      const currentTabIsDivided = currentTabElement.getAttribute("data-is-divided");
+      if (currentTabIsDivided === "false") {
+        groupTabsMoveWhenTabOut(currentGroupElement, currentTabElement);
+      }
+    } else if (tabMoveStatus === TabMoveStatus.Combine) {
       setShowTabDividePreview(null);
 
-      const combineTargetGroupId = tabElement.getAttribute("data-target-group-id");
-      const currTabId = tabElement.getAttribute("data-tab-id");
-      const currTabOrder = tabElement.getAttribute("data-tmp-order");
-      const currTabOrderNumber = Number(currTabOrder);
-      const currTabIsDivided = tabElement.getAttribute("data-is-divided");
-      if (!currTabId || !currTabOrder || !currTabIsDivided || !tabElement.parentElement) return;
+      const currentTabTempOrder = currentTabElement.getAttribute("data-tmp-order");
+      const combineGroupId = currentTabElement.getAttribute("data-combine-group-id");
+      const combineGroupElement = document.getElementById(combineGroupId);
+      if (!combineGroupId || !combineGroupElement) return;
+      const isCombined = currentTabElement.getAttribute("data-is-combined");
 
-      if (combineTargetGroupId) {
-        const tabElementRect = tabElement.getBoundingClientRect();
-        const currTabTmpOrder = tabElement.getAttribute("data-tmp-order");
-        const currTabTmpOrderNumber = Number(currTabTmpOrder);
-        if (!currTabTmpOrder || !tabElement.parentElement) return;
-        if (tabElement.getAttribute("data-is-divided") === "true") return;
-        const tabElements = tabElement.parentElement.querySelectorAll("[data-tab-id]");
-        tabElements.forEach((tabElement) => {
-          const tabTmpOrder = tabElement.getAttribute("data-tmp-order");
-          const tabTmpOrderNumber = Number(tabTmpOrder);
-          const tabTransformStatus = tabElement.getAttribute("data-transform-status");
-          if (tabTmpOrderNumber === currTabTmpOrderNumber) return;
-          if (tabTmpOrderNumber > currTabTmpOrderNumber && tabElement instanceof HTMLElement) {
-            if (tabTransformStatus === "1") {
-              tabElement.style.transform = `translate(0px, 0px)`;
-              tabElement.setAttribute("data-transform-status", "0");
-              tabElement.setAttribute("data-tmp-order", JSON.stringify(tabTmpOrderNumber - 1));
-            } else if (tabTransformStatus === "-1") {
-              tabElement.style.transform = `translate(0px, 0px)`;
-              tabElement.setAttribute("data-transform-status", "0");
-              tabElement.setAttribute("data-tmp-order", JSON.stringify(tabTmpOrderNumber + 1));
-            } else {
-              tabElement.style.transform = `translate(-${tabElementRect.width}px ,0px)`;
-              tabElement.setAttribute("data-transform-status", "-1");
-              tabElement.setAttribute("data-tmp-order", JSON.stringify(tabTmpOrderNumber - 1));
-            }
-          }
-        });
-        tabElement.setAttribute("data-is-divided", "true");
-      } else {
-        const tabElementRect = tabElement.getBoundingClientRect();
-        const groupHeaderElementRect = tabElement.parentElement?.getBoundingClientRect();
-        const currTabLeft = tabElementRect.left + tabElementRect.width;
-
-        if (currTabIsDivided === "true") {
-          let newOrder = 0;
-          tabElement.setAttribute("data-is-divided", "false");
-          const tabElements = tabElement.parentElement.querySelectorAll("[data-tab-id]");
-          tabElements.forEach((tabElement, idx) => {
+      // when current tab catched to combine to other groups, set current tab order number with combine group tabs
+      if (isCombined === "false") {
+        const currentGroupTabElements = currentGroupHeaderElement.querySelectorAll("[data-tab-id]");
+        const currentTabIsDivided = currentTabElement.getAttribute("data-is-divided");
+        if (currentTabIsDivided === "false") {
+          currentGroupTabElements.forEach((tabElement) => {
             if (tabElement instanceof HTMLElement) {
-              const tabId = tabElement.getAttribute("data-tab-id");
+              const tabTempOrder = tabElement.getAttribute("data-tmp-order");
               const tabTransformStatus = tabElement.getAttribute("data-transform-status");
-              const tabTmpOrder = tabElement.getAttribute("data-tmp-order");
-              const tabTmpOrderNumber = Number(tabTmpOrder);
-              if (tabId === currTabId) return;
-              const targetTabLeft = tabElement.getBoundingClientRect().left + tabElement.offsetWidth;
-              if (currTabLeft < targetTabLeft) {
-                if (tabTransformStatus === "-1") {
+              if (Number(currentTabTempOrder) < Number(tabTempOrder)) {
+                if (tabTransformStatus === "1") {
                   tabElement.style.transform = "translate(0px, 0px)";
                   tabElement.setAttribute("data-transform-status", "0");
-                  tabElement.setAttribute("data-tmp-order", JSON.stringify(tabTmpOrderNumber + 1));
-                } else if (tabTransformStatus === "1") {
+                  tabElement.setAttribute("data-tmp-order", JSON.stringify(Number(tabTempOrder) - 1));
+                } else if (tabTransformStatus === "-1") {
+                  tabElement.style.transform = "translate(0px, 0px)";
+                  tabElement.setAttribute("data-transform-status", "0");
+                  tabElement.setAttribute("data-tmp-order", JSON.stringify(Number(tabTempOrder) + 1));
                 } else {
-                  tabElement.style.transform = `translate(${tabElementRect.width}px, 0px)`;
-                  tabElement.setAttribute("data-transform-status", "1");
-                  tabElement.setAttribute("data-tmp-order", JSON.stringify(tabTmpOrderNumber + 1));
+                  tabElement.style.transform = `translate(-${currentTabElement.offsetWidth}px ,0px)`;
+                  tabElement.setAttribute("data-transform-status", "-1");
+                  tabElement.setAttribute("data-tmp-order", JSON.stringify(Number(tabTempOrder) - 1));
                 }
-              } else {
-                newOrder = idx + 1;
               }
             }
           });
-          if (newOrder >= tabElements.length) newOrder = tabElements.length - 1;
-          tabElement.setAttribute("data-tmp-order", JSON.stringify(newOrder));
-          return;
+          currentTabElement.setAttribute("data-is-divided", "true");
         }
 
-        let newOrder = Math.floor((currTabLeft - groupHeaderElementRect.left - tabElementRect.width / 2) / tabElementRect.width);
-        if (newOrder >= dataContext.group[currGroupId].tabIds.length) newOrder = dataContext.group[currGroupId].tabIds.length - 1;
-        if (newOrder <= 0) newOrder = 0;
-        if (currTabOrderNumber === newOrder) return;
-        const targetTabElement = tabElement.parentElement.querySelector(`[data-tmp-order="${newOrder}"]`);
+        let currentTabNewOrder = 0;
+        const combineGroupTabElements = combineGroupElement.querySelectorAll("[data-tab-id]");
+        combineGroupTabElements.forEach((tabElement, idx) => {
+          if (tabElement instanceof HTMLElement) {
+            const tabTempOrder = tabElement.getAttribute("data-tmp-order");
+            const tabTransformStatus = tabElement.getAttribute("data-transform-status");
+            const tabLeft = tabElement.getBoundingClientRect().left + tabElement.offsetWidth;
+            if (currentTabLeft < tabLeft) {
+              if (tabTransformStatus === "-1") {
+                tabElement.style.transform = "translate(0px, 0px)";
+                tabElement.setAttribute("data-transform-status", "0");
+                tabElement.setAttribute("data-tmp-order", JSON.stringify(Number(tabTempOrder) + 1));
+              } else if (tabTransformStatus === "1") {
+              } else {
+                tabElement.style.transform = `translate(${currentTabElement.offsetWidth}px, 0px)`;
+                tabElement.setAttribute("data-transform-status", "1");
+                tabElement.setAttribute("data-tmp-order", JSON.stringify(Number(tabTempOrder) + 1));
+              }
+            } else {
+              currentTabNewOrder = Number(tabTempOrder) + 1;
+            }
+          }
+        });
+        if (currentTabNewOrder >= combineGroupTabElements.length + 1) currentTabNewOrder = combineGroupTabElements.length;
+        currentTabElement.setAttribute("data-tmp-order", JSON.stringify(currentTabNewOrder));
+        currentTabElement.setAttribute("data-is-combined", "true");
+      } else {
+        const combineGroupElementRect = combineGroupElement.getBoundingClientRect();
+        let currentTabNewOrder = Math.floor(
+          (currentTabLeft - combineGroupElementRect.left - currentTabElement.offsetWidth / 2) / currentTabElement.offsetWidth
+        );
+        if (currentTabNewOrder >= dataContext.group[combineGroupId].tabIds.length + 1) {
+          currentTabNewOrder = dataContext.group[combineGroupId].tabIds.length;
+        }
+        if (currentTabNewOrder <= 0) currentTabNewOrder = 0;
+        if (Number(currentTabTempOrder) === currentTabNewOrder) return;
+
+        const targetTabElement = combineGroupElement.querySelector(`[data-tmp-order="${currentTabNewOrder}"]`);
         if (!targetTabElement) return;
-        tabElement.setAttribute("data-tmp-order", JSON.stringify(newOrder));
-        const targetTabElementTransformStatus = targetTabElement.getAttribute("data-transform-status");
-        if (targetTabElement && targetTabElement instanceof HTMLElement) {
-          if (currTabOrderNumber > newOrder) {
-            targetTabElement.setAttribute("data-tmp-order", JSON.stringify(newOrder + 1));
-            if (targetTabElementTransformStatus === "-1") {
+        currentTabElement.setAttribute("data-tmp-order", JSON.stringify(currentTabNewOrder));
+        const targetTabTransformStatus = targetTabElement.getAttribute("data-transform-status");
+        if (targetTabElement instanceof HTMLElement) {
+          if (Number(currentTabTempOrder) > currentTabNewOrder) {
+            targetTabElement.setAttribute("data-tmp-order", JSON.stringify(currentTabNewOrder + 1));
+            if (targetTabTransformStatus === "-1") {
               targetTabElement.style.transform = "translate(0px, 0px)";
               targetTabElement.setAttribute("data-transform-status", "0");
             } else {
-              targetTabElement.style.transform = `translate(${tabElementRect.width}px, 0px)`;
+              targetTabElement.style.transform = `translate(${currentTabElement.offsetWidth}px, 0px)`;
               targetTabElement.setAttribute("data-transform-status", "1");
             }
           } else {
-            targetTabElement.setAttribute("data-tmp-order", JSON.stringify(newOrder - 1));
-            if (targetTabElementTransformStatus === "1") {
+            targetTabElement.setAttribute("data-tmp-order", JSON.stringify(currentTabNewOrder - 1));
+            if (targetTabTransformStatus === "1") {
               targetTabElement.style.transform = "translate(0px, 0px)";
               targetTabElement.setAttribute("data-transform-status", "0");
             } else {
-              targetTabElement.style.transform = `translate(${-tabElementRect.width}px, 0px)`;
+              targetTabElement.style.transform = `translate(-${currentTabElement.offsetWidth}px, 0px)`;
+              targetTabElement.setAttribute("data-transform-status", "-1");
+            }
+          }
+        }
+      }
+    } else {
+      setShowTabDividePreview(null);
+
+      // if current tab was combined before, make combine group element's tab move
+      const combineGroupId = currentTabElement.getAttribute("data-combine-group-id");
+      const combineGroupElement = document.getElementById(combineGroupId);
+      if (combineGroupElement) {
+        groupTabsMoveWhenTabOut(combineGroupElement, currentTabElement);
+      }
+
+      const isDivided = currentTabElement.getAttribute("data-is-divided");
+      if (isDivided === "true") {
+        let currentTabNewOrder = 0;
+        currentTabElement.setAttribute("data-is-divided", "false");
+        const currentGroupTabElements = currentGroupElement.querySelectorAll("[data-tab-id]");
+        currentGroupTabElements.forEach((tabElement, idx) => {
+          if (tabElement instanceof HTMLElement) {
+            const tabId = tabElement.getAttribute("data-tab-id");
+            const tabTransformStatus = tabElement.getAttribute("data-transform-status");
+            const tabTempOrder = tabElement.getAttribute("data-tmp-order");
+            if (tabId === currentTabId) return;
+            const tabLeft = tabElement.getBoundingClientRect().left + tabElement.offsetWidth;
+            if (currentTabLeft < tabLeft) {
+              if (tabTransformStatus === "-1") {
+                tabElement.style.transform = "translate(0px, 0px)";
+                tabElement.setAttribute("data-transform-status", "0");
+                tabElement.setAttribute("data-tmp-order", JSON.stringify(Number(tabTempOrder) + 1));
+              } else if (tabTransformStatus === "1") {
+              } else {
+                if (Number(tabTempOrder) === currentGroupTabElements.length - 1) return;
+                tabElement.style.transform = `translate(${currentTabElement.offsetWidth}px, 0px)`;
+                tabElement.setAttribute("data-transform-status", "1");
+                tabElement.setAttribute("data-tmp-order", JSON.stringify(Number(tabTempOrder) + 1));
+              }
+            } else {
+              currentTabNewOrder = Number(tabTempOrder) + 1;
+            }
+          }
+        });
+        if (currentTabNewOrder >= currentGroupTabElements.length) currentTabNewOrder = currentGroupTabElements.length - 1;
+        currentTabElement.setAttribute("data-tmp-order", JSON.stringify(currentTabNewOrder));
+        currentTabElement.setAttribute("data-is-divided", "false");
+      } else {
+        const currentGroupHeaderElementRect = currentGroupHeaderElement.getBoundingClientRect();
+        const currentTabTempOrder = currentTabElement.getAttribute("data-tmp-order");
+        let currentTabNewOrder = Math.floor(
+          (currentTabLeft - currentGroupHeaderElementRect.left - currentTabElement.offsetWidth / 2) / currentTabElement.offsetWidth
+        );
+        if (currentTabNewOrder >= dataContext.group[currentGroupId].tabIds.length) {
+          currentTabNewOrder = dataContext.group[currentGroupId].tabIds.length - 1;
+        }
+        if (currentTabNewOrder <= 0) currentTabNewOrder = 0;
+        if (Number(currentTabTempOrder) === currentTabNewOrder) return;
+
+        const targetTabElement = currentGroupHeaderElement.querySelector(`[data-tmp-order="${currentTabNewOrder}"]`);
+        if (!targetTabElement) return;
+        if (targetTabElement instanceof HTMLElement) {
+          currentTabElement.setAttribute("data-tmp-order", JSON.stringify(currentTabNewOrder));
+          const targetTabTransformStatus = targetTabElement.getAttribute("data-transform-status");
+          if (Number(currentTabTempOrder) > currentTabNewOrder) {
+            targetTabElement.setAttribute("data-tmp-order", JSON.stringify(currentTabNewOrder + 1));
+            if (targetTabTransformStatus === "-1") {
+              targetTabElement.style.transform = "translate(0px, 0px)";
+              targetTabElement.setAttribute("data-transform-status", "0");
+            } else {
+              targetTabElement.style.transform = `translate(${currentTabElement.offsetWidth}px, 0px)`;
+              targetTabElement.setAttribute("data-transform-status", "1");
+            }
+          } else {
+            targetTabElement.setAttribute("data-tmp-order", JSON.stringify(currentTabNewOrder - 1));
+            if (targetTabTransformStatus === "1") {
+              targetTabElement.style.transform = "translate(0px, 0px)";
+              targetTabElement.setAttribute("data-transform-status", "0");
+            } else {
+              targetTabElement.style.transform = `translate(-${currentTabElement.offsetWidth}px, 0px)`;
               targetTabElement.setAttribute("data-transform-status", "-1");
             }
           }
@@ -614,23 +685,11 @@ const Container = ({ children }: { children: React.ReactNode }) => {
     const currTabId = tabElement.getAttribute("data-tab-id");
     const currTabOrder = tabElement.getAttribute("data-tab-order");
     const currGroupElement = document.getElementById(currGroupId);
+    const currGroupHeaderElement = tabElement.parentElement;
     if (!currGroupElement || !currGroupId || !currTabId || !currTabOrder || !tabElement.parentElement) return;
 
     if (tabMoveStatus === TabMoveStatus.Default) {
-      const newTabIds = [];
-      tabElement.parentElement.querySelectorAll("[data-tab-id]").forEach((tabElement) => {
-        const tabId = tabElement.getAttribute("data-tab-id");
-        const tabOrder = tabElement.getAttribute("data-tmp-order");
-        if (tabElement instanceof HTMLElement) {
-          tabElement.classList.remove("transition-transform", "duration-300");
-          tabElement.style.left = `${Number(tabOrder) * tabElement.offsetWidth}px`;
-          tabElement.style.transform = "translate(0px, 0px)";
-        }
-        if (tabId && tabOrder) {
-          newTabIds[Number(tabOrder)] = tabId;
-        }
-        tabElement.setAttribute("data-tmp-order", tabOrder);
-      });
+      const newTabIds = getGroupNewTabListWithTabOrder(currGroupHeaderElement, tabElement);
       dataDispatch({
         type: "UPDATE_TAB_ORDER",
         payload: {
@@ -638,51 +697,36 @@ const Container = ({ children }: { children: React.ReactNode }) => {
           tabIds: newTabIds,
         },
       });
-      const newTabOrder = tabElement.getAttribute("data-tab-order");
-      if (newTabOrder) {
-        tabElement.style.top = "0px";
-        tabElement.style.left = `${Number(newTabOrder) * tabElement.offsetWidth}px`;
-        tabElement.style.transform = "translate(0px, 0px)";
-        tabElement.setAttribute("data-position", JSON.stringify({ x: 0, y: 0 }));
-      }
-      tabElement.parentElement.querySelectorAll("[data-tab-id]").forEach((tabElement) => {
-        if (tabElement instanceof HTMLElement) {
-          tabElement.classList.add("transition-transform", "duration-300");
-          tabElement.setAttribute("data-transform-status", "0");
-        }
-      });
+
+      groupTabsUpdatePositionWithTabOrder(currGroupHeaderElement, tabElement);
     } else if (tabMoveStatus === TabMoveStatus.Combine) {
-      tabElement.parentElement.querySelectorAll("[data-tab-id]").forEach((tabElement) => {
-        const tabOrder = tabElement.getAttribute("data-tab-order");
-        if (tabElement instanceof HTMLElement) {
-          tabElement.classList.remove("transition-transform", "duration-300");
-          tabElement.style.left = `${Number(tabOrder) * tabElement.offsetWidth}px`;
-          tabElement.style.transform = "translate(0px, 0px)";
+      const combineGroupId = tabElement.getAttribute("data-combine-group-id");
+      let combineGroupHeaderElement = null;
+      document.querySelectorAll("[data-group-header]").forEach((groupHeaderElement) => {
+        if (groupHeaderElement instanceof HTMLElement) {
+          if (groupHeaderElement.getAttribute("data-group-id") === combineGroupId) {
+            combineGroupHeaderElement = groupHeaderElement;
+            return;
+          }
         }
       });
-      const newTabOrder = tabElement.getAttribute("data-tab-order");
-      if (newTabOrder) {
-        tabElement.style.top = "0px";
-        tabElement.style.left = `${Number(newTabOrder) * tabElement.offsetWidth}px`;
-        tabElement.style.transform = "translate(0px, 0px)";
-        tabElement.setAttribute("data-position", JSON.stringify({ x: 0, y: 0 }));
-      }
-      tabElement.parentElement.querySelectorAll("[data-tab-id]").forEach((tabElement) => {
-        if (tabElement instanceof HTMLElement) {
-          tabElement.classList.add("transition-transform", "duration-300");
-          tabElement.setAttribute("data-transform-status", "0");
-        }
-      });
-      const targetGroupId = tabElement.getAttribute("data-target-group-id");
+
+      if (!combineGroupHeaderElement) return;
+      const newTabIds = getGroupNewTabListWithTabOrder(combineGroupHeaderElement, tabElement);
       dataDispatch({
         type: "COMBINE_TAB",
         payload: {
           currGroupId,
-          targetGroupId,
-          tabId: currTabId,
+          targetGroupId: combineGroupId,
+          currTabId,
+          newTabIds,
         },
       });
-      tabElement.removeAttribute("data-target-group-id");
+
+      groupTabsUpdatePositionWithTabOrder(combineGroupHeaderElement, tabElement);
+      groupTabsUpdatePositionWithTabOrder(tabElement.parentElement, tabElement);
+
+      tabElement.removeAttribute("data-combine-group-id");
       const groupElements = document.querySelectorAll("[data-group]");
       groupElements.forEach((groupElement) => {
         groupElement.style.zIndex = "initial";
@@ -690,27 +734,7 @@ const Container = ({ children }: { children: React.ReactNode }) => {
     } else {
       if (dataContext.group[currGroupId].tabIds.length === 1) return;
       if (showTabDividePreviewRef.current) {
-        tabElement.parentElement.querySelectorAll("[data-tab-id]").forEach((tabElement) => {
-          const tabOrder = tabElement.getAttribute("data-tab-order");
-          if (tabElement instanceof HTMLElement) {
-            tabElement.classList.remove("transition-transform", "duration-300");
-            tabElement.style.left = `${Number(tabOrder) * tabElement.offsetWidth}px`;
-            tabElement.style.transform = "translate(0px, 0px)";
-          }
-        });
-        const newTabOrder = tabElement.getAttribute("data-tab-order");
-        if (newTabOrder) {
-          tabElement.style.top = "0px";
-          tabElement.style.left = `${Number(newTabOrder) * tabElement.offsetWidth}px`;
-          tabElement.style.transform = "translate(0px, 0px)";
-          tabElement.setAttribute("data-position", JSON.stringify({ x: 0, y: 0 }));
-        }
-        tabElement.parentElement.querySelectorAll("[data-tab-id]").forEach((tabElement) => {
-          if (tabElement instanceof HTMLElement) {
-            tabElement.classList.add("transition-transform", "duration-300");
-            tabElement.setAttribute("data-transform-status", "0");
-          }
-        });
+        groupTabsUpdatePositionWithTabOrder(tabElement.parentElement, tabElement);
         dataDispatch({
           type: "DIVIDE_TAB",
           payload: {
@@ -845,8 +869,7 @@ const GroupHeader = React.forwardRef<React.ElementRef<"div">, IGroupProps>((prop
           fullSize: { width: containerElement.clientWidth, height: containerElement.clientHeight },
           prevSize: { width: groupElement.clientWidth, height: groupElement.clientHeight },
           containerOffset: { top: containerElement.offsetTop, left: containerElement.offsetLeft },
-          isFullScreen:
-            groupElement.clientWidth === containerElement.clientWidth && groupElement.clientHeight === containerElement.clientHeight,
+          isFullScreen: groupElement.clientWidth === containerElement.clientWidth && groupElement.clientHeight === containerElement.clientHeight,
         },
       });
     }
@@ -911,6 +934,7 @@ const Tab = React.forwardRef<React.ElementRef<"div">, ITabProps>((props, forward
       data-position={JSON.stringify(position)}
       data-transform-status="0"
       data-is-divided={false}
+      data-is-combined={false}
     >
       <span className="text-yellow-300">{dataContext.tab[tabId].name}</span>
     </div>
