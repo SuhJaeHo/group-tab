@@ -12,6 +12,7 @@ import getTabMoveStatus, { TabMoveStatus } from "../utils/getTabMoveStatus";
 import groupTabsMoveWhenTabOut from "../utils/groupTabsMoveWhenTabOut";
 import groupTabsUpdatePositionWithTabOrder from "../utils/groupTabsUpdatePositionWithTabOrder";
 import getGroupNewTabListWithTabOrder from "../utils/getGroupNewTabListWithTabOrder";
+import updateGroupElementsZIndex, { CustomZIndex } from "../utils/updateGroupElementsZIndex";
 
 interface IGroup {
   [key: string]: {
@@ -200,6 +201,7 @@ const Container = ({ children }: { children: React.ReactNode }) => {
 
   const [showTabDividePreview, setShowTabDividePreview] = useState<null | IPreview>(null);
   const showTabDividePreviewRef = useRef<null | IPreview>(null);
+  const prevCombineId = useRef("");
 
   useEffect(() => {
     showTabDividePreviewRef.current = showTabDividePreview;
@@ -502,7 +504,19 @@ const Container = ({ children }: { children: React.ReactNode }) => {
       const isCombined = currentTabElement.getAttribute("data-is-combined");
 
       // when current tab catched to combine to other groups, set current tab order number with combine group tabs
-      if (isCombined === "false") {
+      if (isCombined === "false" || prevCombineId.current !== combineGroupId) {
+        const prevCombineGroupElement = document.getElementById(prevCombineId.current);
+        if (prevCombineGroupElement) {
+          groupTabsMoveWhenTabOut(prevCombineGroupElement, currentTabElement);
+        }
+        prevCombineId.current = combineGroupId;
+        updateGroupElementsZIndex(combineGroupId);
+
+        if (currentGroupElement.querySelectorAll("[data-tab-id]").length > 1) {
+          currentGroupElement.style.zIndex = CustomZIndex.default;
+          combineGroupElement.style.zIndex = CustomZIndex.selectedGroup;
+        }
+
         const currentGroupTabElements = currentGroupHeaderElement.querySelectorAll("[data-tab-id]");
         const currentTabIsDivided = currentTabElement.getAttribute("data-is-divided");
         if (currentTabIsDivided === "false") {
@@ -605,6 +619,8 @@ const Container = ({ children }: { children: React.ReactNode }) => {
 
       const isDivided = currentTabElement.getAttribute("data-is-divided");
       if (isDivided === "true") {
+        updateGroupElementsZIndex(currentGroupId);
+
         let currentTabNewOrder = 0;
         currentTabElement.setAttribute("data-is-divided", "false");
         const currentGroupTabElements = currentGroupElement.querySelectorAll("[data-tab-id]");
@@ -680,6 +696,8 @@ const Container = ({ children }: { children: React.ReactNode }) => {
     const tabElement = document.querySelector("[data-tab-is-dragging=true]") as HTMLElement;
     if (!tabElement) return;
 
+    tabElement.style.zIndex = CustomZIndex.default;
+
     const tabMoveStatus = getTabMoveStatus(dataContext);
     tabElement.setAttribute("data-tab-is-dragging", "false");
 
@@ -729,10 +747,7 @@ const Container = ({ children }: { children: React.ReactNode }) => {
       groupTabsUpdatePositionWithTabOrder(tabElement.parentElement, tabElement);
 
       tabElement.removeAttribute("data-combine-group-id");
-      const groupElements = document.querySelectorAll("[data-group]");
-      groupElements.forEach((groupElement) => {
-        groupElement.style.zIndex = "initial";
-      });
+      updateGroupElementsZIndex(combineGroupId);
     } else {
       if (dataContext.group[currGroupId].tabIds.length === 1) return;
       if (showTabDividePreviewRef.current) {
@@ -751,7 +766,7 @@ const Container = ({ children }: { children: React.ReactNode }) => {
       }
       const groupElements = document.querySelectorAll("[data-group]");
       groupElements.forEach((groupElement) => {
-        groupElement.style.zIndex = "initial";
+        groupElement.style.zIndex = CustomZIndex.default;
       });
     }
     setShowTabDividePreview(null);
@@ -818,14 +833,7 @@ const Group = React.forwardRef<React.ElementRef<"div">, IGroupProps>((props, for
   );
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    const groupElements = document.querySelectorAll("[data-group]");
-    groupElements.forEach((groupElement) => {
-      if (groupElement.id === e.currentTarget.id) {
-        groupElement.style.zIndex = "20";
-      } else {
-        groupElement.style.zIndex = "initial";
-      }
-    });
+    updateGroupElementsZIndex(e.currentTarget.id);
   };
 
   return (
@@ -915,6 +923,7 @@ const Tab = React.forwardRef<React.ElementRef<"div">, ITabProps>((props, forward
   const handleMouseDown = (e: React.MouseEvent) => {
     const tabElement = e.currentTarget as HTMLElement;
     if (tabElement) {
+      tabElement.style.zIndex = CustomZIndex.selectedTab;
       tabElement.setAttribute("data-tab-is-dragging", "true");
       position.x = e.clientX;
       position.y = e.clientY;
