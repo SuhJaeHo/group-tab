@@ -351,6 +351,7 @@ const Container = ({ children }: { children: React.ReactNode }) => {
 
   const handleMouseUp = (e: React.MouseEvent) => {
     containerRef.current?.setAttribute("data-board-is-dragging", "false");
+    prevCombineId.current = "";
     handleMouseUpHeader(e);
     handleMouseUpResize(e);
     handleMouseUpTab(e);
@@ -411,6 +412,8 @@ const Container = ({ children }: { children: React.ReactNode }) => {
 
     const tabMoveStatus = getTabMoveStatus(dataContext);
     if (tabMoveStatus === TabMoveStatus.Divide) {
+      prevCombineId.current = "";
+
       // show tab indicator when tab catched to divide
       if (!containerRef.current || dataContext.group[currentGroupId].tabIds.length === 1) return;
 
@@ -505,9 +508,11 @@ const Container = ({ children }: { children: React.ReactNode }) => {
 
       // when current tab catched to combine to other groups, set current tab order number with combine group tabs
       if (isCombined === "false" || prevCombineId.current !== combineGroupId) {
-        const prevCombineGroupElement = document.getElementById(prevCombineId.current);
-        if (prevCombineGroupElement) {
-          groupTabsMoveWhenTabOut(prevCombineGroupElement, currentTabElement);
+        if (prevCombineId.current !== "") {
+          const prevCombineGroupElement = document.getElementById(prevCombineId.current);
+          if (prevCombineGroupElement) {
+            groupTabsMoveWhenTabOut(prevCombineGroupElement, currentTabElement);
+          }
         }
         prevCombineId.current = combineGroupId;
         updateGroupElementsZIndex(combineGroupId);
@@ -608,6 +613,7 @@ const Container = ({ children }: { children: React.ReactNode }) => {
         }
       }
     } else {
+      prevCombineId.current = "";
       setShowTabDividePreview(null);
 
       // if current tab was combined before, make combine group element's tab move
